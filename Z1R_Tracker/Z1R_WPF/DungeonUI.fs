@@ -901,32 +901,26 @@ let makeDungeonTabs(cm:CustomComboBoxes.CanvasManager, posY, selectDungeonTabEve
                             isFirstTimeClickingAnyRoomInThisDungeonTab <- false  // hotkey cancels first-time click accelerator, so not to interfere with all-hotkey folks
                             numeral.Opacity <- 0.0
                             // idempotent action on marked part toggles to Unmarked; user can left click to toggle completed-ness
-                            match HotKeys.DungeonRoomHotKeyProcessor.TryGetValue(ea.Key) with
-                            | Some(Choice1Of3(roomType)) -> 
-                                ea.Handled <- true
-                                let workingCopy = roomStates.[i,j].Clone()
-                                if workingCopy.RoomType = roomType then
-                                    workingCopy.RoomType <- DungeonRoomState.RoomType.Unmarked
-                                else
-                                    workingCopy.RoomType <- roomType
-                                SetNewValue(workingCopy)
-                            | Some(Choice2Of3(monsterDetail)) -> 
-                                ea.Handled <- true
-                                let workingCopy = roomStates.[i,j].Clone()
-                                if workingCopy.MonsterDetail = monsterDetail then
-                                    workingCopy.MonsterDetail <- DungeonRoomState.MonsterDetail.Unmarked
-                                else
-                                    workingCopy.MonsterDetail <- monsterDetail
-                                SetNewValue(workingCopy)
-                            | Some(Choice3Of3(floorDropDetail)) -> 
-                                ea.Handled <- true
-                                let workingCopy = roomStates.[i,j].Clone()
-                                if workingCopy.FloorDropDetail = floorDropDetail then
-                                    workingCopy.FloorDropDetail <- DungeonRoomState.FloorDropDetail.Unmarked
-                                else
-                                    workingCopy.FloorDropDetail <- floorDropDetail
-                                SetNewValue(workingCopy)
-                            | None -> ()
+                            let found, existingHint, unmarkType =
+                                match HotKeys.DungeonRoomHotKeyProcessor.TryGetChoiceType(ea.Key) with
+                                | Some(Choice1Of3(_)) -> true, Choice1Of3(roomStates.[i,j].RoomType), Choice1Of3(DungeonRoomState.RoomType.Unmarked)
+                                | Some(Choice2Of3(_)) -> true, Choice2Of3(roomStates.[i,j].MonsterDetail), Choice2Of3(DungeonRoomState.MonsterDetail.Unmarked)
+                                | Some(Choice3Of3(_)) -> true, Choice3Of3(roomStates.[i,j].FloorDropDetail), Choice3Of3(DungeonRoomState.FloorDropDetail.Unmarked)
+                                | None -> false, Choice1Of3(DungeonRoomState.RoomType.Unmarked), Choice1Of3(DungeonRoomState.RoomType.Unmarked)
+
+                            if not found then
+                                ()
+                            else
+                            
+                            let workingCopy = roomStates.[i,j].Clone()
+                            match HotKeys.DungeonRoomHotKeyProcessor.TryGetNextValue(ea.Key, existingHint, unmarkType) with
+                            | Some(Choice1Of3(roomType)) ->        workingCopy.RoomType <- roomType
+                            | Some(Choice2Of3(monsterDetail)) ->   workingCopy.MonsterDetail <- monsterDetail
+                            | Some(Choice3Of3(floorDropDetail)) -> workingCopy.FloorDropDetail <- floorDropDetail
+                            | None -> () // shouldn't happen. generate a warning somehow?
+                                
+                            ea.Handled <- true
+                            SetNewValue(workingCopy)
                     )
                 c.MouseEnter.Add(fun _ ->
                     if not popupIsActive then

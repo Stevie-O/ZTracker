@@ -286,7 +286,7 @@ let MakeBoxItemWithExtraDecorations(cm:CustomComboBoxes.CanvasManager, box:Track
         )
     c.MyKeyAdd(fun ea -> 
         if not popupIsActive then
-            match HotKeys.ItemHotKeyProcessor.TryGetValue(ea.Key) with
+            match HotKeys.ItemHotKeyProcessor.TryGetNextValue(ea.Key, box.CellCurrent()) with
             | Some(i) ->
                 ea.Handled <- true
                 if i <> -1 && box.CellCurrent() = i then

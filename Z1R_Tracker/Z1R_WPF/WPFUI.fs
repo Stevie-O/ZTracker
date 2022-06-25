@@ -9,7 +9,10 @@ open OverworldMapTileCustomization
 open HotKeys.MyKey
 open OverworldItemGridUI
 
+type KeyBinding<'a> = HotKeys.ExtendedLookupResult<'a>
+
 module OW_ITEM_GRID_LOCATIONS = OverworldMapTileCustomization.OW_ITEM_GRID_LOCATIONS
+
 
 let voice = OptionsMenu.voice
 
@@ -916,15 +919,19 @@ let makeAll(mainWindow:Window, cm:CustomComboBoxes.CanvasManager, drawingCanvas:
                     )
                 c.MyKeyAdd(fun ea ->
                     if not !popupIsActiveRef then
-                        match HotKeys.OverworldHotKeyProcessor.TryGetValue(ea.Key) with
-                        | Some(hotKeyedState) -> 
+                        let originalState = TrackerModel.overworldMapMarks.[i,j].Current()
+                        let hotKeyBinding = HotKeys.OverworldHotKeyProcessor.TryGetNextValueEx(ea.Key, originalState)
+                        match hotKeyBinding with
+                        | KeyBinding.Multi(_) | KeyBinding.Single(_) -> 
                             ea.Handled <- true
-                            let originalState = TrackerModel.overworldMapMarks.[i,j].Current()
-                            let state = OverworldMapTileCustomization.DoSpecialHotKeyHandlingForOverworldTiles(i, j, originalState, hotKeyedState)
+                            let state = 
+                                match hotKeyBinding with
+                                | KeyBinding.Multi(hotKeyedState) -> hotKeyedState
+                                | KeyBinding.Single(hotKeyedState) -> OverworldMapTileCustomization.DoSpecialHotKeyHandlingForOverworldTiles(i, j, originalState, hotKeyedState)
                             async {
                                 do! SetNewValue(state, originalState)
                             } |> Async.StartImmediate
-                        | None -> ()
+                        | KeyBinding.Unbound -> ()
                     )
                 if Graphics.shouldInitiallyHideOverworldMap then
                     TrackerModel.overworldMapMarks.[i,j].Set(TrackerModel.MapSquareChoiceDomainHelper.DARK_X)

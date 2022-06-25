@@ -662,13 +662,10 @@ let MakeBlockers(cm:CustomComboBoxes.CanvasManager, blockerQueries:ResizeArray<_
             )
         c.MyKeyAdd(fun ea -> 
             if not popupIsActive then
-                match HotKeys.BlockerHotKeyProcessor.TryGetValue(ea.Key) with
+                match HotKeys.BlockerHotKeyProcessor.TryGetNextValue(ea.Key, current, TrackerModel.DungeonBlocker.NOTHING) with
                 | Some(db) -> 
                     ea.Handled <- true
-                    if current = db then
-                        SetNewValue(TrackerModel.DungeonBlocker.NOTHING)    // idempotent hotkeys behave as a toggle
-                    else
-                        SetNewValue(db)
+                    SetNewValue(db)
                 | None -> ()
             )
         c

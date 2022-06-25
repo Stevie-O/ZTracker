@@ -246,23 +246,30 @@ let PrettyKey(key:Input.Key) =
         sprintf "%c" s.[1]
     else
         s
+
+[<AbstractClass>]
 type HotKeyProcessor<'v when 'v : equality>(contextName) =
+    abstract member TryAdd: k:Input.Key * v:'v -> bool
+    abstract member StateToKeys: state: 'v -> ResizeArray<Input.Key>
+    member this.ContextName = contextName
+
+type SingleHotKeyProcessor<'v when 'v : equality>(contextName) =
+    inherit HotKeyProcessor<'v>(contextName)
     let table = new System.Collections.Generic.Dictionary<Input.Key,'v>()
     let stateToKeys = new System.Collections.Generic.Dictionary<_,_>()  // caching
-    member this.ContextName = contextName
     member this.TryGetValue(k) = 
         match table.TryGetValue(k) with
         | true, v -> Some(v)
         | _ -> None
     member this.ContainsKey(k) = table.ContainsKey(k)
     member this.Keys() = table.Keys |> Seq.toArray
-    member this.TryAdd(k,v) =
+    override this.TryAdd(k,v) =
         if table.ContainsKey(k) then
             false
         else
             table.Add(k,v)
             true
-    member this.StateToKeys(state) =
+    override this.StateToKeys(state) =
         if not(stateToKeys.ContainsKey(state)) then
             let r = ResizeArray()
             for k in keyUniverse do
@@ -286,13 +293,157 @@ type HotKeyProcessor<'v when 'v : equality>(contextName) =
         else
             desc
 
-let ItemHotKeyProcessor = new HotKeyProcessor<int>("Item")
-let OverworldHotKeyProcessor = new HotKeyProcessor<int>("Overworld")
-let BlockerHotKeyProcessor = new HotKeyProcessor<TrackerModel.DungeonBlocker>("Blocker")
-let DungeonRoomHotKeyProcessor = new HotKeyProcessor<Choice<DungeonRoomState.RoomType,DungeonRoomState.MonsterDetail,DungeonRoomState.FloorDropDetail> >("DungeonRoom")
-let TakeAnyHotKeyProcessor = new HotKeyProcessor<int>("TakeAny")
-let TakeThisHotKeyProcessor = new HotKeyProcessor<int>("TakeThis")
-let GlobalHotKeyProcessor = new HotKeyProcessor<GlobalHotkeyTargets>("Global")
+type ExtendedLookupResult<'v> = Unbound | Single of 'v | Multi of 'v
+
+type MultiHotKeyProcessor<'v when 'v : equality>(contextName) =
+    inherit HotKeyProcessor<'v>(contextName)
+    let table = new System.Collections.Generic.Dictionary<Input.Key,list<'v>>()
+    let stateToKeys = new System.Collections.Generic.Dictionary<_,_>()  // caching
+    let getNextOption c l =
+        let rec getNextCore c d l =
+            match l with
+            | [] -> d
+            | h::n::_ when h = c -> n
+            | _::t -> getNextCore c d t
+        getNextCore c (List.head l) l
+    let getNextOptionReset c r l =
+        let rec getNextCore c d r l =
+            match l with
+            | [] -> d
+            | h::n::_ when h = c -> n
+            | [h] when h = c -> r
+            | _::t -> getNextCore c d r t
+        getNextCore c (List.head l) r l
+    member this.ContextName = contextName
+    // for code that needs to distinguish between singly-bound keys and multi-bound keys, in order to effect special behavior for the former
+    member this.TryGetNextValueEx(k, current) =
+        match table.TryGetValue(k) with
+        | true, [x] -> Single(x)
+        | true, v -> Multi(getNextOption current v)
+        | _ -> Unbound
+    member this.TryGetNextValue(k, current) =
+        match table.TryGetValue(k) with
+        | true, v -> Some(getNextOption current v)
+        | _ -> None
+    member this.TryGetNextValue(k, current, reset) = 
+        match table.TryGetValue(k) with
+        | true, v -> Some(getNextOptionReset current reset v)
+        | _ -> None
+    member this.ContainsKey(k) = table.ContainsKey(k)
+    member this.Keys() = table.Keys |> Seq.toArray
+    override this.TryAdd(k,v) =
+        if table.ContainsKey(k) then
+            table.[k] <- v::table.[k]
+        else
+            table.Add(k,[v])
+        // maintain the reverse lookup table as well
+        let reverse = match stateToKeys.TryGetValue(v) with
+                      | true, revlist -> revlist
+                      | _ -> (fun x -> stateToKeys.Add(v, x); x) (ResizeArray())
+        reverse.Add(k)
+        true
+    override this.StateToKeys(state) =
+        if not(stateToKeys.ContainsKey(state)) then
+            let r = ResizeArray()
+            stateToKeys.Add(state, r)
+            r
+        else
+            stateToKeys.[state]
+    member this.AsPrettyHotKeyOpt(state) =
+        let keys = this.StateToKeys(state)
+        if keys.Count > 0 then
+            Some(sprintf "HotKey = %s" (PrettyKey(keys.[0])))
+        else
+            None
+    member this.AppendHotKeyToDescription(desc, state) =
+        let keys = this.StateToKeys(state)
+        if keys.Count > 0 then
+            sprintf "%s\nHotKey = %s" desc (PrettyKey(keys.[0]))
+        else
+            desc
+
+type ChoiceHotKeyProcessor<'v when 'v : equality>(contextName) =
+    inherit HotKeyProcessor<'v>(contextName)
+    let table = new System.Collections.Generic.Dictionary<Input.Key,list<'v>>()
+    let stateToKeys = new System.Collections.Generic.Dictionary<_,_>()  // caching
+    let tagLookup = Reflection.FSharpValue.PreComputeUnionTagReader typeof<'v>
+    let getNextOption c l =
+        let rec getNextCore c d l =
+            match l with
+            | [] -> d
+            | h::n::_ when h = c -> n
+            | _::t -> getNextCore c d t
+        getNextCore c (List.head l) l
+    let getNextOptionReset c r l =
+        let rec getNextCore c d r l =
+            match l with
+            | [] -> d
+            | h::n::_ when h = c -> n
+            | [h] when h = c -> r
+            | _::t -> getNextCore c d r t
+        getNextCore c (List.head l) r l
+    member this.ContextName = contextName
+    member this.TryGetChoiceType(k) =
+        match table.TryGetValue(k) with
+        | true, v -> Some(List.head v)
+        | _ -> None
+    member this.TryGetNextValue(k, current) =
+        match table.TryGetValue(k) with
+        | true, v -> Some(getNextOption current v)
+        | _ -> None
+    member this.TryGetNextValue(k, current, reset) = 
+        match table.TryGetValue(k) with
+        | true, v -> Some(getNextOptionReset current reset v)
+        | _ -> None
+    member this.ContainsKey(k) = table.ContainsKey(k)
+    member this.Keys() = table.Keys |> Seq.toArray
+    override this.TryAdd(k,v) =
+        let success = 
+            match table.TryGetValue(k) with
+            | true, old ->
+                if tagLookup(List.head old) = tagLookup(v) then
+                    table.[k] <- v::table.[k]
+                    true
+                else
+                    false
+            | _ ->
+                table.Add(k,[v])
+                true
+        
+        if success then
+            // maintain the reverse lookup table as well
+            let reverse = match stateToKeys.TryGetValue(v) with
+                          | true, revlist -> revlist
+                          | _ -> (fun x -> stateToKeys.Add(v, x); x) (ResizeArray())
+            reverse.Add(k)
+        success
+    override this.StateToKeys(state) =
+        if not(stateToKeys.ContainsKey(state)) then
+            let r = ResizeArray()
+            stateToKeys.Add(state, r)
+            r
+        else
+            stateToKeys.[state]
+    member this.AsPrettyHotKeyOpt(state) =
+        let keys = this.StateToKeys(state)
+        if keys.Count > 0 then
+            Some(sprintf "HotKey = %s" (PrettyKey(keys.[0])))
+        else
+            None
+    member this.AppendHotKeyToDescription(desc, state) =
+        let keys = this.StateToKeys(state)
+        if keys.Count > 0 then
+            sprintf "%s\nHotKey = %s" desc (PrettyKey(keys.[0]))
+        else
+            desc
+
+let ItemHotKeyProcessor = new MultiHotKeyProcessor<int>("Item")
+let OverworldHotKeyProcessor = new MultiHotKeyProcessor<int>("Overworld")
+let BlockerHotKeyProcessor = new MultiHotKeyProcessor<TrackerModel.DungeonBlocker>("Blocker")
+let DungeonRoomHotKeyProcessor = new ChoiceHotKeyProcessor<Choice<DungeonRoomState.RoomType,DungeonRoomState.MonsterDetail,DungeonRoomState.FloorDropDetail> >("DungeonRoom")
+let TakeAnyHotKeyProcessor = new SingleHotKeyProcessor<int>("TakeAny")
+let TakeThisHotKeyProcessor = new SingleHotKeyProcessor<int>("TakeThis")
+let GlobalHotKeyProcessor = new SingleHotKeyProcessor<GlobalHotkeyTargets>("Global")
 
 let HotKeyFilename = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "HotKeys.txt")
 

@@ -9,7 +9,7 @@ open HotKeys.MyKey
 let canvasAdd = Graphics.canvasAdd
 let OMTW = Graphics.OMTW
 
-let FourWayPieMenu(cm,h,displaysDocksBehaviors:((Canvas*_)*_*_)[],hkp:HotKeys.HotKeyProcessor<int>) = async {
+let FourWayPieMenu(cm,h,displaysDocksBehaviors:((Canvas*_)*_*_)[],hkp:HotKeys.SingleHotKeyProcessor<int>) = async {
     let wh = new System.Threading.ManualResetEvent(false)
     let c = new Canvas(IsHitTestVisible=true)
     let MARGIN = 10.
